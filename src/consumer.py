@@ -26,7 +26,7 @@ class CDCProcessor:
             group_id=self.kafka_config.group_id,
             auto_offset_reset=self.kafka_config.auto_offset_reset,
             value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-            consumer_timeout_ms=1000
+            consumer_timeout_ms=None  # No timeout - keep listening indefinitely
         )
     
     def _init_mysql_connection(self):
@@ -185,13 +185,23 @@ class CDCProcessor:
                 "group_id": self.kafka_config.group_id
             })
             
-            for message in self.consumer:
-                if message.value:
-                    success = self._process_cdc_event(message.value)
-                    if success:
-                        logger.debug("Successfully processed CDC event")
-                    else:
-                        logger.warning("Failed to process CDC event")
+            # Use polling instead of iteration to keep the consumer alive
+            while True:
+                message_batch = self.consumer.poll(timeout_ms=1000)
+                
+                if message_batch:
+                    for topic_partition, messages in message_batch.items():
+                        for message in messages:
+                            if message.value:
+                                logger.info(f"Received CDC event: {message.value}")
+                                success = self._process_cdc_event(message.value)
+                                if success:
+                                    logger.info("Successfully processed CDC event")
+                                else:
+                                    logger.warning("Failed to process CDC event")
+                else:
+                    # No messages received, but keep polling
+                    logger.debug("No messages received, continuing to poll...")
                         
         except KeyboardInterrupt:
             logger.info("Received interrupt signal, shutting down")
