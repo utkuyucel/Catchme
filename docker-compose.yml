@@ -84,18 +84,21 @@ services:
 
   # Python CDC Consumer
   consumer:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.consumer
     container_name: cdc_consumer
     depends_on:
       - kafka
       - mysql
       - postgres
+      - connect
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       POSTGRES_HOST: postgres
       MYSQL_HOST: mysql
-    volumes:
-      - ./src:/app/src
+    networks:
+      - default
     restart: unless-stopped
 
 volumes:
