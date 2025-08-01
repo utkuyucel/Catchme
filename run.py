@@ -28,6 +28,8 @@ class CDCPipelineRunner:
             logger.info("Consumer stopped by user")
         except Exception as e:
             logger.error(f"Consumer failed: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
     
     def show_status(self) -> None:
