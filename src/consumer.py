@@ -83,8 +83,11 @@ class CDCProcessor:
         except Exception as e:
             logger.error("Error processing CDC event", extra={
                 "error": str(e),
+                "error_type": type(e).__name__,
                 "event": str(event)[:200] if event else "None"
             })
+            import traceback
+            logger.error("Full traceback", extra={"traceback": traceback.format_exc()})
             return False
     
     def _handle_insert(self, data: Dict[str, Any]) -> bool:

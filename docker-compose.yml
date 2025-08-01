@@ -135,6 +135,8 @@ services:
         condition: service_healthy
       connect:
         condition: service_healthy
+      setup:
+        condition: service_completed_successfully
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       POSTGRES_HOST: postgres
@@ -142,14 +144,29 @@ services:
     networks:
       - default
     restart: unless-stopped
-    # Additional startup delay to ensure connector is fully initialized
+    # Consumer starts after setup service completes successfully
     command: >
       sh -c '
-        echo "Waiting for Debezium Connect to be fully ready..."
-        sleep 30
         echo "Starting CDC Consumer..."
         python run.py
       '
+
+  # Connector Setup Service (Level 4.5 - Run once after Connect is ready)
+  setup:
+    image: curlimages/curl:latest
+    container_name: cdc_setup
+    depends_on:
+      connect:
+        condition: service_healthy
+    volumes:
+      - ./setup-connector.sh:/setup-connector.sh:ro
+    command: >
+      sh -c '
+        echo "Setting up Debezium connector..."
+        sh /setup-connector.sh
+        echo "Connector setup completed successfully!"
+      '
+    restart: "no"
 
 volumes:
   postgres_data:

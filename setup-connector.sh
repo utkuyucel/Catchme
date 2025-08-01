@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/bin/sh
 
 # Wait for Debezium Connect to be ready
 echo "Waiting for Debezium Connect to be ready..."
-until curl -f http://localhost:8083/connectors; do
+until curl -f http://cdc_connect:8083/connectors; do
     echo "Connect not ready yet, waiting..."
     sleep 5
 done
@@ -10,7 +10,7 @@ done
 echo "Debezium Connect is ready. Checking PostgreSQL connector status..."
 
 # Check if connector already exists
-CONNECTOR_STATUS=$(curl -s http://localhost:8083/connectors/postgres-connector/status 2>/dev/null)
+CONNECTOR_STATUS=$(curl -s http://cdc_connect:8083/connectors/postgres-connector/status 2>/dev/null)
 
 if [ $? -eq 0 ] && echo "$CONNECTOR_STATUS" | grep -q '"state":"RUNNING"'; then
     echo "✅ PostgreSQL connector already exists and is running!"
@@ -25,11 +25,11 @@ sleep 10
 
 # Create PostgreSQL connector
 RESPONSE=$(curl -s -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" \
-http://localhost:8083/connectors/ -d '{
+http://cdc_connect:8083/connectors/ -d '{
   "name": "postgres-connector",
   "config": {
     "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-    "database.hostname": "postgres",
+    "database.hostname": "cdc_postgres",
     "database.port": "5432",
     "database.user": "postgres",
     "database.password": "postgres",
