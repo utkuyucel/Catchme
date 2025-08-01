@@ -1,5 +1,5 @@
 services:
-  # PostgreSQL - Source Database
+  # PostgreSQL - Source Database (Level 1 - Start First)
   postgres:
     image: postgres:15
     container_name: cdc_postgres
@@ -20,8 +20,14 @@ services:
       - "max_wal_senders=1"
       - "-c"
       - "max_replication_slots=4"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sourcedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  # MySQL - Destination Database
+  # MySQL - Destination Database (Level 1 - Start First)
   mysql:
     image: mysql:8.0
     container_name: cdc_mysql
@@ -35,21 +41,39 @@ services:
     volumes:
       - ./init-mysql:/docker-entrypoint-initdb.d
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "mysql", "-pmysql"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
-  # Zookeeper
+  # Zookeeper (Level 2 - Wait for databases)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: cdc_zookeeper
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  # Kafka
+  # Kafka (Level 3 - Wait for Zookeeper)
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: cdc_kafka
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
       - "9092:9092"
       - "29092:29092"
@@ -62,14 +86,22 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:29092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
-  # Debezium Connect
+  # Debezium Connect (Level 4 - Wait for Kafka and PostgreSQL)
   connect:
     image: debezium/connect:2.4
     container_name: cdc_connect
     depends_on:
-      - kafka
-      - postgres
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     ports:
       - "8083:8083"
     environment:
@@ -81,18 +113,28 @@ services:
       CONFIG_STORAGE_REPLICATION_FACTOR: 1
       OFFSET_STORAGE_REPLICATION_FACTOR: 1
       STATUS_STORAGE_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
-  # Python CDC Consumer
+  # Python CDC Consumer (Level 5 - Wait for everything)
   consumer:
     build:
       context: .
       dockerfile: Dockerfile.consumer
     container_name: cdc_consumer
     depends_on:
-      - kafka
-      - mysql
-      - postgres
-      - connect
+      kafka:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      connect:
+        condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       POSTGRES_HOST: postgres
@@ -100,6 +142,14 @@ services:
     networks:
       - default
     restart: unless-stopped
+    # Additional startup delay to ensure connector is fully initialized
+    command: >
+      sh -c '
+        echo "Waiting for Debezium Connect to be fully ready..."
+        sleep 30
+        echo "Starting CDC Consumer..."
+        python run.py
+      '
 
 volumes:
   postgres_data:
